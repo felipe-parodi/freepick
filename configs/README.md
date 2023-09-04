@@ -13,4 +13,4 @@ Results on 230903_train_data (3,308 images) with Faster-RCNN 2-class detector. T
 #### Macaque Detection
 |      Model      | Input Size |  AP   |  AR   |                Details and Download                 |
 | :-------------: | :--------: | :---: | :---: | :-------------------------------------------------: |
-|    Faster-RCNN |  256x192   | ... | ... |      [Faster-RCNN Model Weights](https://drive.google.com/file/d/1NypGQGjeRR6nuSGPm11IMFt1FT3r_4Ae/view?usp=drive_link)      |
+|    Faster-RCNN_2cls |  256x192   | ... | ... |      [Faster-RCNN Model Weights](https://drive.google.com/file/d/1NypGQGjeRR6nuSGPm11IMFt1FT3r_4Ae/view?usp=drive_link)      |
