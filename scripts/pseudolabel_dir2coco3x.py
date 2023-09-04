@@ -9,7 +9,7 @@ from mmpose.apis import init_model
 from mmpose.registry import VISUALIZERS
 from mmpose.utils import adapt_mmdet_pipeline
 
-from mactrack_utils import (process_images_in_directory,
+from pseudolabel_utils import (process_images_in_directory,
                             process_videos_in_directory)
 
 start_time = time.time()
