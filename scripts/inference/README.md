@@ -3,7 +3,7 @@
 ...
 
 ### Usage
-'''
+```
 python topdown_demo.py 
   path2Detectionmodelconfig2\fasterrcnn_2classdet_mt_3x.py"
   path2Detectionmodelcheckpoint\fasterrcnn2class_best_bbox_mAP_epoch_50.pth 
@@ -13,4 +13,4 @@ python topdown_demo.py
   --bbox-thr 0.9 
   --output-root path2OutputVideo\freepick_hooke220830_output.mp4 
   --device cuda:0
-'''
+```
