@@ -3,9 +3,10 @@
 ...
 
 ### Usage
+For testing the models on an example video:
 ```
-python topdown_demo.py 
-  path2Detectionmodelconfig2\fasterrcnn_2classdet_mt_3x.py"
+python inference/topdown_demo.py 
+  path2Detectionmodelconfig2\fasterrcnn_2classdet_mt_3x.py
   path2Detectionmodelcheckpoint\fasterrcnn2class_best_bbox_mAP_epoch_50.pth 
   path2PoseModelConfig\hrnet_w48_macaque_256x192_3x_230822.py 
   path2PoseModelChkpt\best_coco_AP_epoch_410.pth 
