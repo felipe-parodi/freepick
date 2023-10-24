@@ -27,4 +27,4 @@
 3. Decide on video length and trim to exact frame count (AKA sync).
 - ...
 
-4. Model building. 
+4. Ready for model building & analysis!
