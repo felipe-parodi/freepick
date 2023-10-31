@@ -16,15 +16,20 @@
 
 
 ## Preprocessing Stages
+1. HVFLIP with FFMPEG
+- AVI [MJPEG in WhiteMatter] without hardware acceleration
+-- **WINDOWS:** for %f in (*.avi) do ffmpeg -i "%f" -vf "hflip,vflip" -c:v mpeg4 -q:v 1 -c:a copy "flipped\%~nf_flipped.avi"
+-- **LINUX:** for f in *.avi; do ffmpeg -i "$f" -vf "hflip,vflip" -c:v mpeg4 -q:v 1 -c:a copy "flipped/${f%.*}_flipped.avi"; done
+- MP4 [H264 in WhiteMatter] with h264 hardware acceleration
+-- **WINDOWS:** for %f in (*.mp4) do ffmpeg -hwaccel cuda -i "%f" -vf "hflip,vflip" -c:v h264_nvenc -qp 0 -c:a copy "flipped\%~nf_flipped.mp4"
+-- **LINUX:** for f in *.mp4; do ffmpeg -hwaccel cuda -i "$f" -vf "hflip,vflip" -c:v h264_nvenc -qp 0 -c:a copy "flipped/${f%.*}_flipped.mp4"; done
 
-1. Flip videos with ffmpeg.
-- Linux directory: for f in *.avi; do ffmpeg -hwaccel cuda -i "$f" -vf "hflip,vflip" -c:v h264_nvenc -c:a copy "flipped/${f%.avi}_flipped.avi"; done
-- Windows directory: for %f in (*.avi) do ffmpeg -hwaccel cuda -i "%f" -vf "hflip,vflip" -c:v h264_nvenc -c:a copy "flipped\%~nf_flipped.avi"
-- Linux single video: ffmpeg -hwaccel cuda -i input.avi -vf "hflip,vflip" -c:v h264_nvenc -c:a copy output.avi
+2. TRIM TO EXACT FRAME COUNT
+- AVI
+-- **WINDOWS:** for %i in (*.avi) do (ffmpeg -i "%i" -frames:v FRAME_COUNT -c:v copy -q:v 1 -c:a copy "trim_%i")
+-- **LINUX:** for i in *.avi; do ffmpeg -i "$i" -frames:v FRAME_COUNT -c:v copy -q:v 1 -c:a copy "trim_$i"; done
+- MP4
+-- **WINDOWS:** for %i in (*.mp4) do (ffmpeg -hwaccel cuda -i "%i" -frames:v FRAME_COUNT -c:v h264_nvenc -c:a copy "trim_%i")
+-- **LINUX:** for i in *.mp4; do ffmpeg -hwaccel cuda -i "$i" -frames:v FRAME_COUNT -c:v h264_nvenc -c:a copy "trim_$i"; done
 
-2. Select top 3 angles.
-
-3. Decide on video length and trim to exact frame count (AKA sync).
-- ...
-
-4. Ready for model building & analysis!
+3. Ready for model building & analysis!
