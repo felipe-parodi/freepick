@@ -220,6 +220,7 @@ def process_images_in_directory(
     ann_uniq_id,
     img_anno_dict,
     out_dir,
+    final_flag
 ):
     """
     Processes all images in a specified directory and its subdirectories.
@@ -236,6 +237,8 @@ def process_images_in_directory(
         ann_uniq_id (int): Updated unique annotation ID.
     """
     for root, _, files in os.walk(img_dir):
+        if final_flag and 'final' not in root:
+            continue
         for img_file in tqdm(files):
             if not img_file.endswith((".jpg", ".png", ".jpeg")):
                 continue
@@ -279,6 +282,7 @@ def process_videos_in_directory(
     ann_uniq_id,
     img_anno_dict,
     out_dir,
+    final_flag
 ):
     """
     Processes all videos in a specified directory and its subdirectories.
@@ -289,28 +293,49 @@ def process_videos_in_directory(
         det_model, pose_estimator, visualizer, bbox_thr, keypoint_thr, nms_thr,
         min_num_keypoints_desired, frame_id_uniq_counter, ann_uniq_id, img_anno_dict,
         out_dir: Same as process_frame function.
+        final_flag (bool): If true, only process videos in directories named 'final'.
 
     Returns:
         frame_id_uniq_counter (int): Updated unique frame ID counter.
         ann_uniq_id (int): Updated unique annotation ID.
     """
     frame_counter = 0
+    camera_counter = {}
+    camera_videos = {}
     for root, _, files in os.walk(vid_dir):
+        if final_flag and 'final' not in root:
+            continue
         video_files = [f for f in files if f.endswith((".mp4", ".avi"))]
+        # if avi, randomly select 10 videos
+        if len(video_files) > 10 and video_files[0].endswith(".avi"):
+            video_files = random.sample(video_files, 10)
+        elif len(video_files) > 8 and video_files[0].endswith(".mp4"):
+            video_files = random.sample(video_files, 8)
+        
+        # add these videos to camera_counter
+        for vid in video_files:
+            camera_name = vid[:7]
+            if vid.endswith(".avi"):
+                camera_name += "_avi"
+            elif vid.endswith(".mp4"):
+                camera_name += "_mp4"
+            if camera_name in camera_counter:
+                if vid in camera_videos[camera_name]:
+                    continue
+            else:
+                camera_counter[camera_name] = 0
+                camera_videos[camera_name] = []
+            
+            camera_videos[camera_name].append(vid)
 
-        # Randomly select two video files from each subdirectory
-        selected_videos = random.sample(video_files, min(1, len(video_files)))
-
-        for vid in tqdm(selected_videos):
-            # for vid in tqdm(files):
-            # if not vid.endswith((".mp4", ".avi")):
-            # continue
-            # print video file name:
             print(f'\n {vid}')
             video = mmcv.VideoReader(os.path.join(root, vid))
 
             for frame_id, cur_frame in enumerate(tqdm(video)):
                 frame_counter += 1
+                if frame_counter % 30 != 0:
+                    continue
+                camera_counter[camera_name] += 1
                 frame_id_uniq = int(id_pool[frame_id_uniq_counter])
                 frame_id_uniq_counter += 1
                 vid_basename = os.path.basename(vid)[:-4]
