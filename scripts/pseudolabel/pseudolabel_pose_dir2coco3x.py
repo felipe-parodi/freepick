@@ -8,8 +8,8 @@ from mmdet.apis import init_detector
 from mmpose.apis import init_model
 from mmpose.registry import VISUALIZERS
 from mmpose.utils import adapt_mmdet_pipeline
-
-from pseudolabel_pose_utils import (process_images_in_directory,
+from segment_anything import SamPredictor, sam_model_registry
+from mactrack_utils import (process_images_in_directory,
                             process_videos_in_directory)
 
 start_time = time.time()
@@ -29,6 +29,8 @@ def main():
         --ckpt-intvl: Checkpoint interval (default: 5)
         --device: Device to use (default: "cuda:0")
         --draw-bbox: Flag to draw bounding boxes of instances
+        --final: Flag to process only videos in 'final' subdirectories
+        --sam-model: Path to the SAM model
     """
     parser = argparse.ArgumentParser(description="Process some integers.")
     parser.add_argument("--imgdir", type=str, help="path to images")
@@ -39,15 +41,18 @@ def main():
     parser.add_argument(
         "--draw-bbox", action="store_true", help="Draw bboxes of instances"
     )
+    parser.add_argument("--final", action="store_true", help="Only process videos in 'final' subdirectories.")
+    parser.add_argument("--sam-model", type=str, help="path to sam model")
     args = parser.parse_args()
 
+    final_flag = args.final
     out_dir = args.output_dir
-    bbox_thr = 0.5
+    bbox_thr = 0.1
     checkpoint_interval = args.ckpt_intvl
     device = args.device
-    keypoint_thr = 0.5
+    keypoint_thr = 0.35
     nms_thr = 0.1
-    min_num_keypoints_desired = 15
+    min_num_keypoints_desired = 17
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(out_dir + "/imgs", exist_ok=True)
     os.makedirs(out_dir + "/viz", exist_ok=True)
@@ -55,14 +60,38 @@ def main():
 
     out_json_file = out_dir + "/annotations/enclosure_pose_labels.json"
 
+    print('Loading detection model...')
+    #==== Monkey Detection ====#
     det_config = "C:\\Users\\Felipe Parodi\\Documents\\felipe_code\\MacTrack\\scripts\\pose_pseudolabel_230612\\fasterrcnn_2classdet_mt_3x.py"
     det_checkpoint = "Y:\\MacTrack\\results\\mactrack_detection\\fasterrcnn2class_best_bbox_mAP_epoch_50.pth"
+    
+    print('Loading pose estimation model...')
+    #==== Monkey Pose Estimation ====#
     # pose_config = "C:\\Users\\Felipe Parodi\\Documents\\felipe_code\\MacTrack\\scripts\\pose_pseudolabel_230612\\hrnet_w48_macaque_256x192_3x.py"
     pose_config = r"y:\MacTrack\scripts\hrnet_w48_macaque_256x192_3x_230822.py"
     pose_checkpoint = (
         r"Y:\MacTrack\results\freepick_model3_230824_2\best_coco_AP_epoch_290.pth"
     )
     # pose_checkpoint = "https://download.openmmlab.com/mmpose/animal/hrnet/hrnet_w48_macaque_256x192-9b34b02a_20210407.pth"
+
+    if args.sam_model != "None":
+        print('Loading SAM model...')
+        #===== Segment Anything Model Function =====#
+        if args.sam_model == "vit_h":
+            MODEL_TYPE = "vit_h"
+            sam_checkpoint = "P:\EnclosureProjects\Foraging_1freemonkey\code\sam_checkpoints\sam_vit_h_4b8939.pth"
+        elif args.sam_model == "vit_l":
+            MODEL_TYPE = "vit_l"
+            sam_checkpoint = "P:\EnclosureProjects\Foraging_1freemonkey\code\sam_checkpoints\sam_vit_l_0b3195.pth"
+        else:
+            MODEL_TYPE = "vit_b"
+            sam_checkpoint = "P:\EnclosureProjects\Foraging_1freemonkey\code\sam_checkpoints\sam_vit_b_01ec64.pth"
+        
+        sam = sam_model_registry[MODEL_TYPE](checkpoint=sam_checkpoint)
+        sam.to(device=device)
+        sam_predictor = SamPredictor(sam)
+    else:
+        sam_predictor = None
 
     print(
         f"Output json file: {out_json_file}. \nInitializing NHP detection and pose estimation models ..."
@@ -131,16 +160,16 @@ def main():
         "annotations": [],
     }
 
-    frame_id_uniq_counter = 0
-    ann_uniq_id, checkpoint_count = int(0), int(0)
+    frame_id_uniq_counter, ann_uniq_id = 0, int(0)
     id_pool = np.arange(0, 10_000_000)
     np.random.shuffle(id_pool)
-
+    print("Processing input ...")
     if args.imgdir:
         frame_id_uniq_counter, ann_uniq_id = process_images_in_directory(
             args.imgdir,
             id_pool,
             det_model,
+            sam_predictor,
             pose_estimator,
             visualizer,
             bbox_thr,
@@ -151,6 +180,9 @@ def main():
             ann_uniq_id,
             img_anno_dict,
             out_dir,
+            final_flag,
+            checkpoint_interval,
+            args.segment
         )
 
     if args.viddir:
@@ -158,6 +190,7 @@ def main():
             args.viddir,
             id_pool,
             det_model,
+            sam_predictor,
             pose_estimator,
             visualizer,
             bbox_thr,
@@ -168,15 +201,16 @@ def main():
             ann_uniq_id,
             img_anno_dict,
             out_dir,
+            final_flag,
+            checkpoint_interval
         )
 
     # Saving the JSON file
     print(f"Number of images added to COCO json: {len(img_anno_dict['images'])}")
     with open(out_json_file, "w") as outfile:
-        json.dump(img_anno_dict, outfile, indent=2)
+        json.dump(img_anno_dict, outfile, indent=4)
 
     print("Time elapsed: ", time.time() - start_time)
-
 
 if __name__ == "__main__":
     main()
