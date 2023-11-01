@@ -2,16 +2,36 @@
 import gc
 import os
 import random
-
+import json
 import cv2
+import glob
 import mmcv
+# import matplotlib.pyplot as plt
+# from segment_anything import SamPredictor, sam_model_registry
 import numpy as np
+# import torch
 from mmdet.apis import inference_detector
 from mmpose.apis import inference_topdown
 from mmpose.evaluation.functional import nms
 from mmpose.structures import merge_data_samples
 from tqdm import tqdm
 
+def checkpoint(annotations, checkpoint_file, checkpoint_counter):
+    with open(f"{checkpoint_file}_{checkpoint_counter}.json", 'w') as f:
+        json.dump(annotations, f, indent=4)
+
+def overlay_mask_on_frame(frame, mask):
+    # Ensure mask is a binary mask
+    mask = mask.astype(bool)
+    # Create a color mask
+    color_mask = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+    color_mask[mask] = [255, 200, 200]  # Dodger Blue color for the mask
+
+    # Blend the color mask and the frame
+    alpha = 0.4
+    frame_with_mask = cv2.addWeighted(color_mask, alpha, frame, 1 - alpha, 0)
+
+    return frame_with_mask
 
 def all_valid_dimensions(bbox, frame_shape):
     """
@@ -44,10 +64,10 @@ def all_valid_dimensions(bbox, frame_shape):
 
     return True
 
-
 def process_frame(
     frame,
     det_model,
+    sam_predictor,
     pose_estimator,
     visualizer,
     bbox_thr,
@@ -66,6 +86,7 @@ def process_frame(
     Args:
         frame (numpy.ndarray): Input frame.
         det_model (object): Detection model.
+        sam_predictor (object): SAM model.
         pose_estimator (object): Pose estimation model.
         visualizer (object): Visualizer object.
         bbox_thr (float): Threshold for bounding box score.
@@ -83,7 +104,7 @@ def process_frame(
         ann_uniq_id (int): Updated unique annotation ID.
     """
     num_monkeys = 1
-
+    
     detection_results = inference_detector(det_model, frame)
     if len(detection_results.pred_instances) == 0:
         return frame_id_uniq, ann_uniq_id
@@ -103,6 +124,25 @@ def process_frame(
     bboxes = bboxes[valid_indices]
     bboxes = bboxes[nms(bboxes, nms_thr), :4]
 
+    if sam_predictor and len(bboxes) > 0:
+        # Use the first bounding box for SAM prediction
+        sam_predictor.set_image(frame)
+        input_box = np.array([bboxes[0][0], 
+                     bboxes[0][1],
+                     bboxes[0][2],
+                    bboxes[0][3]
+        ]) # [x1, y1, x2, y2]
+        input_label = np.array([1])
+        center_x = (bboxes[0][0] + bboxes[0][2]) / 2
+        center_y = (bboxes[0][1] + bboxes[0][3]) / 2
+        input_point = np.array([center_x, center_y])
+        masks, scores, logits = sam_predictor.predict(
+            point_coords=input_point,
+            point_labels=input_label,
+            box=input_box,
+            multimask_output=False,
+            )
+    
     pose_results = inference_topdown(pose_estimator, frame, bboxes)
 
     if len(pose_results) == 0:
@@ -118,6 +158,9 @@ def process_frame(
         kpt_thr=keypoint_thr,
     )
     vis_frame = visualizer.get_image()
+    if sam_predictor:
+        vis_frame_with_mask = overlay_mask_on_frame(vis_frame, masks[0])
+    
     height, width, _ = frame.shape
 
     keypoints = data_samples.pred_instances.keypoints
@@ -152,6 +195,11 @@ def process_frame(
         kpts_flat = []
         for pt, pt_score in zip(kpts, kpts_scores):
             if pt_score >= keypoint_thr:
+                # if greater than the image size, ignore
+                if pt[0] >= width or pt[1] >= height:
+                    return frame_id_uniq, ann_uniq_id
+                if sam_predictor and masks[0][int(pt[1]), int(pt[0])] == 0:
+                    return frame_id_uniq, ann_uniq_id
                 visibility = 2  # visible
                 visible_keypoints += 1
             else:
@@ -181,22 +229,33 @@ def process_frame(
             }
             annotations_list.append(annotations)
             annotations_added = True
+            for annotation in annotations_list:
+                img_anno_dict["annotations"].append(annotation)
+                ann_uniq_id += 1
+            raw_frame = out_dir + "/imgs/" + file_name
+            cv2.imwrite(raw_frame, frame)
+            viz_frame = out_dir + "/viz/" + file_name
+            if sam_predictor: 
+                cv2.imwrite(viz_frame, vis_frame_with_mask)        
+            else:
+                cv2.imwrite(viz_frame, vis_frame)
 
-    if not annotations_added:
-        return frame_id_uniq, ann_uniq_id
-
-    if len(annotations_list) == len(bboxes):
-        for annotation in annotations_list:
-            img_anno_dict["annotations"].append(annotation)
-            ann_uniq_id += 1
-        raw_frame = out_dir + "/imgs/" + file_name
-        cv2.imwrite(raw_frame, frame)
-        viz_frame = out_dir + "/viz/" + file_name
-        cv2.imwrite(viz_frame, vis_frame)
-        # annotations_added = True
+    # if len(annotations_list) == len(bboxes):
+    #     for annotation in annotations_list:
+    #         img_anno_dict["annotations"].append(annotation)
+    #         ann_uniq_id += 1
+    #     raw_frame = out_dir + "/imgs/" + file_name
+    #     cv2.imwrite(raw_frame, frame)
+    #     viz_frame = out_dir + "/viz/" + file_name
+    #     if sam_predictor: 
+    #         cv2.imwrite(viz_frame, vis_frame_with_mask)        
+    #     else:
+    #         cv2.imwrite(viz_frame, vis_frame)
     # visible_keypoints = 0
     if annotations_added:
         img_anno_dict["images"].append(images)
+    else:
+        return frame_id_uniq, ann_uniq_id
 
     del detection_results
     del pose_results
@@ -205,11 +264,11 @@ def process_frame(
 
     return frame_id_uniq, ann_uniq_id
 
-
 def process_images_in_directory(
     img_dir,
     id_pool,
     det_model,
+    sam_predictor,
     pose_estimator,
     visualizer,
     bbox_thr,
@@ -253,6 +312,7 @@ def process_images_in_directory(
             frame_id_uniq, ann_uniq_id = process_frame(
                 frame,
                 det_model,
+                sam_predictor,
                 pose_estimator,
                 visualizer,
                 bbox_thr,
@@ -267,11 +327,11 @@ def process_images_in_directory(
             )
     return frame_id_uniq_counter, ann_uniq_id
 
-
 def process_videos_in_directory(
     vid_dir,
     id_pool,
     det_model,
+    sam_predictor,
     pose_estimator,
     visualizer,
     bbox_thr,
@@ -282,7 +342,8 @@ def process_videos_in_directory(
     ann_uniq_id,
     img_anno_dict,
     out_dir,
-    final_flag
+    final_flag,
+    ckpt_intvl
 ):
     """
     Processes all videos in a specified directory and its subdirectories.
@@ -305,15 +366,19 @@ def process_videos_in_directory(
     for root, _, files in os.walk(vid_dir):
         if final_flag and 'final' not in root:
             continue
-        video_files = [f for f in files if f.endswith((".mp4", ".avi"))]
-        # if avi, randomly select 10 videos
+
+        print(f'Analyzing videos in {root}') 
+        avi_files = glob.glob(os.path.join(root, '*.avi'))
+        mp4_files = glob.glob(os.path.join(root, '*.mp4'))
+        video_files = sorted(avi_files + mp4_files)
         if len(video_files) > 10 and video_files[0].endswith(".avi"):
             video_files = random.sample(video_files, 10)
         elif len(video_files) > 8 and video_files[0].endswith(".mp4"):
             video_files = random.sample(video_files, 8)
-        
-        # add these videos to camera_counter
-        for vid in video_files:
+
+        checkpoint_interval = ckpt_intvl
+        checkpoint_counter = 0
+        for i, vid in enumerate(video_files):
             camera_name = vid[:7]
             if vid.endswith(".avi"):
                 camera_name += "_avi"
@@ -333,7 +398,7 @@ def process_videos_in_directory(
 
             for frame_id, cur_frame in enumerate(tqdm(video)):
                 frame_counter += 1
-                if frame_counter % 30 != 0:
+                if frame_counter % 60 != 0:
                     continue
                 camera_counter[camera_name] += 1
                 frame_id_uniq = int(id_pool[frame_id_uniq_counter])
@@ -344,6 +409,7 @@ def process_videos_in_directory(
                 frame_id_uniq, ann_uniq_id = process_frame(
                     cur_frame,
                     det_model,
+                    sam_predictor,
                     pose_estimator,
                     visualizer,
                     bbox_thr,
@@ -356,10 +422,11 @@ def process_videos_in_directory(
                     out_dir,
                     file_name,
                 )
-                if (
-                    frame_counter % 10000 == 0
-                ):  # Check if frame_counter is a multiple of 10,000
+
+                if (frame_counter % 10000 == 0):  # Check if frame_counter is a multiple of 10,000
                     gc.collect()  # Run garbage collection
                     frame_counter = 0  # Reset frame counter (optional, but good for avoiding overflow)
-
+            if i % checkpoint_interval == 0:
+                checkpoint(img_anno_dict, out_dir + "/annotations\labels", checkpoint_counter)
+                checkpoint_counter += 1
     return frame_id_uniq_counter, ann_uniq_id
