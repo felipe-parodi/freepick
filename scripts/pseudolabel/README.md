@@ -9,6 +9,9 @@ python pseudolabel_pose_dir2coco3x.py
 --viddir path2InputDirectoryofVideos\Hooke # can also use --imgdir for images
 --output-dir path2OutputDirectory\freepick_hooke_230824
 --draw-bbox
+--final
+--sam-model None # or vit_h, vit_l, vit_b
+--ckpt-intvl 20
 ```
 
 For 2-class detection (e.g., monkey and neural logger) pseudo-labeling on a directory of videos:
